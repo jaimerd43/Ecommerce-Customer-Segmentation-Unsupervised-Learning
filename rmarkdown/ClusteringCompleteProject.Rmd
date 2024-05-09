@@ -1,0 +1,511 @@
+---
+title: "E-commerce platform customers segmentation"
+author: "Jaime Rubio (40425150)"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: yes
+    toc_depth: '3'
+    df_print: paged
+  pdf_document:
+    toc: yes
+    toc_depth: 3
+    number_sections: yes
+fontsize: 12pt
+geometry: margin=1in
+---
+
+```{r setup, echo = FALSE, include=FALSE}
+knitr::opts_chunk$set(include = TRUE, echo = TRUE, message = FALSE, warning = FALSE)
+
+```
+
+```{r, include=FALSE}
+library(ggplot2)
+```
+
+
+```{r, include=FALSE}
+data <- read.csv("/Users/jaimerd/Desktop/github/Unsupervised-machine-learning-customer-clustering/data/data.csv")
+library(dplyr)
+```
+
+# Data preparation
+
+```{r}
+#remove observations which purchase was cancelled
+data <- subset(data, !startsWith(InvoiceNo, "C"))
+
+#check how many values are higher that 1
+filtered_data <- data[data$ReturnRate > 1, ]
+
+# Calculate the percentage of the filtered data set compared to the original dataset
+percentage_higher_than_1 <- (nrow(filtered_data) / nrow(data)) * 100
+
+# Print the percentage
+print(percentage_higher_than_1)
+
+#remove rows where returnrate is higher than 1
+data <- data[data$ReturnRate <= 1, ]
+
+#convert invocedate into the correct format
+data$InvoiceDate <- as.POSIXct(data$InvoiceDate, format = "%Y-%m-%dT%H:%M")
+
+#mutate work levels
+data <- data %>%
+  mutate(Work = case_when(
+    Work == 1 ~ "Health services",
+    Work == 2 ~ "Financial services",
+    Work == 3 ~ "Sales",
+    Work == 4 ~ "Advertising/PR",
+    Work == 5 ~ "Education",
+    Work == 6 ~ "Industrial Sector",
+    Work == 7 ~ "Engineering",
+    Work == 8 ~ "Technology",
+    Work == 9 ~ "Retail & Services",
+    Work == 10 ~ "Self-Employed",
+    Work == 11 ~ "Other"
+  ))
+
+#mutate Education levels
+
+data <- data %>%
+  mutate(Edcation = case_when(
+    Edcation == 1 ~ "High School",
+    Edcation == 2 ~ "Undergraduate",
+    Edcation == 3 ~ "Postgraduate"
+  ))
+
+### Marriage
+
+data <- data %>%
+  mutate(Married = case_when(
+    Married == 1 ~ "Married",
+    Married == 0 ~ "Single"
+  ))
+
+##convert categorical variables into factors 
+
+data$Work <- as.factor(data$Work)
+data$Edcation <- as.factor(data$Edcation)
+data$Married <- as.factor(data$Married)
+data$ZipCode <- as.factor(data$ZipCode)
+
+## imputation of missing values in customer ID 
+
+#create a data set with all missing values 
+data_na <- data %>%
+  filter(is.na(CustomerID))
+
+#filter the original data for non missing values
+data <- data %>%
+  filter(!is.na(CustomerID))
+
+##same InvoceNo same customer
+data_na <- data_na %>%
+  group_by(InvoiceNo) %>%
+  mutate(CustomerID = cur_group_id())
+
+# join both data sets
+data <- bind_rows(data, data_na)
+
+
+#mode for categorical variables 
+get_mode <- function(v) {
+  uniqv <- unique(v)
+  uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+#group by customer id w mean for numerical and mode for categorical 
+new_data <- data %>%
+  group_by(CustomerID) %>%
+  summarise(Age = mean(Age), 
+            Work = get_mode(Work),
+            Avg_Quantity = mean(Quantity),
+            Total_Quantity = sum(Quantity),
+            total_value = sum(Quantity * UnitPrice),
+            Avg_UnitPrice = mean(UnitPrice),
+            Married = get_mode(Married),
+            total_invoice = n_distinct(InvoiceNo),
+            Avg_ReturnRate = mean(ReturnRate),
+            Income = mean(Income),
+            Edcation = get_mode(Edcation),
+            zipcode = get_mode(ZipCode))%>% filter(
+              total_value >= quantile(total_value, 0.025),
+              total_value <= quantile(total_value, 0.975),
+              Total_Quantity >= quantile(Total_Quantity, 0.025),
+              Total_Quantity <= quantile(Total_Quantity, 0.975))
+
+hist(data$ReturnRate)
+
+```
+# Clustering 
+
+## Hierarchical clustering
+
+```{r}
+#hierarchical clustering whit 4 linkage methods -----
+hclust<- hclust(dist(scale(cbind(new_data$Avg_Quantity, new_data$Total_Quantity, new_data$total_value, new_data$Avg_UnitPrice, new_data$Avg_ReturnRate))), method = "complete")
+hclust1<- hclust(dist(scale(cbind(new_data$Avg_Quantity, new_data$Total_Quantity, new_data$total_value, new_data$Avg_UnitPrice, new_data$Avg_ReturnRate))), method = "single")
+hclust2<- hclust(dist(scale(cbind(new_data$Avg_Quantity, new_data$Total_Quantity, new_data$total_value, new_data$Avg_UnitPrice, new_data$Avg_ReturnRate))), method = "centroid")
+hclust3<- hclust(dist(scale(cbind(new_data$Avg_Quantity, new_data$Total_Quantity, new_data$total_value, new_data$Avg_UnitPrice, new_data$Avg_ReturnRate))), method = "average")
+
+```
+
+
+```{r}
+#different nstart values 
+nstart_values <- c(10, 50, 100)
+
+x <- c(1:10)
+
+#for complete method---
+plot(hclust)
+y <- sort(hclust$height, decreasing = TRUE)[1:10]
+plot(x,y); lines(x,y, col= "blue")
+
+results <- vector("list", length = 3)
+for (i in 1:length(nstart_values)) {
+  seg_kmeans <- kmeans(x = data.frame(new_data$Avg_Quantity, new_data$Total_Quantity, new_data$total_value, new_data$Avg_UnitPrice, new_data$Avg_ReturnRate), centers = 8, nstart = nstart_values[i])
+  results[[i]] <- seg_kmeans
+}
+
+# Comparing results
+for (i in 1:length(results)) {
+  cat("Results for nstart =", nstart_values[i], ":\n")
+  print(results[[i]])
+  cat("\n")
+}
+
+
+#for single method
+plot(hclust1)
+y <- sort(hclust1$height, decreasing = TRUE)[1:10]
+plot(x,y); lines(x,y, col= "blue")
+
+results1 <- vector("list", length = 3)
+for (i in 1:length(nstart_values)) {
+  seg_kmeans1 <- kmeans(x = data.frame(new_data$Avg_Quantity, new_data$Total_Quantity, new_data$total_value, new_data$Avg_UnitPrice, new_data$Avg_ReturnRate), centers = 6, nstart = nstart_values[i])
+  results1[[i]] <- seg_kmeans1
+}
+
+# Comparing results
+for (i in 1:length(results1)) {
+  cat("Results for nstart =", nstart_values[i], ":\n")
+  print(results1[[i]])
+  cat("\n")
+  cat("Results for nstart =", nstart_values[i], ":\n")
+  cat("tot.withinss:", results1[[i]]$tot.withinss, "\n\n")
+}
+
+
+## for centroid method 
+
+plot(hclust2)
+y <- sort(hclust2$height, decreasing = TRUE)[1:10]
+plot(x,y); lines(x,y, col= "blue")
+
+results2 <- vector("list", length = 3)
+for (i in 1:length(nstart_values)) {
+  seg_kmeans2 <- kmeans(x = data.frame(new_data$Avg_Quantity, new_data$Total_Quantity, new_data$total_value, new_data$Avg_UnitPrice, new_data$Avg_ReturnRate), centers = 5, nstart = nstart_values[i])
+  results2[[i]] <- seg_kmeans2
+}
+
+# Comparing results
+for (i in 1:length(results2)) {
+  cat("Results for nstart =", nstart_values[i], ":\n")
+  print(results2[[i]])
+  cat("\n")
+  cat("Results for nstart =", nstart_values[i], ":\n")
+  cat("tot.withinss:", results2[[i]]$tot.withinss, "\n\n")
+}
+
+
+## for average method 
+
+plot(hclust3)
+y3 <- sort(hclust3$height, decreasing = TRUE)[1:10]
+plot(x,y3); lines(x,y3, col= "blue")
+
+results3 <- vector("list", length = 3)
+for (i in 1:length(nstart_values)) {
+  seg_kmeans3 <- kmeans(x = data.frame(new_data$Avg_Quantity, new_data$Total_Quantity, new_data$total_value, new_data$Avg_UnitPrice, new_data$Avg_ReturnRate), centers = 4, nstart = nstart_values[i])
+  results3[[i]] <- seg_kmeans3
+}
+
+seg_kmeans3$tot.withinss
+# Comparing results
+for (i in 1:length(results3)) {
+  cat("Results for nstart =", nstart_values[i], ":\n")
+  print(results3[[i]])
+  cat("\n")
+  cat("Results for nstart =", nstart_values[i], ":\n")
+  cat("tot.withinss:", results3[[i]]$tot.withinss, "\n\n")
+}
+
+```
+
+
+```{r}
+
+optimal_clusters_complete <- 8
+optimal_clusters_single <- 6
+optimal_clusters_centroid <- 5
+optimal_clusters_average <- 4
+
+# Create elbow plots
+par(mfrow=c(2,2))  
+
+# elbow plot for "complete"
+y <- sort(hclust$height, decreasing = TRUE)[1:10]
+plot(x, y, type = "l", col = "blue", main = "Method: Complete", xlab = "", ylab = "")
+abline(v = optimal_clusters_complete, col = "red", lty = 2)
+
+# elbow plot for "single"
+y1 <- sort(hclust1$height, decreasing = TRUE)[1:10]
+plot(x, y1, type = "l", col = "red", main = "Method: Single", xlab = "", ylab = "")
+abline(v = optimal_clusters_single, col = "blue", lty = 2)
+
+# elbow plot for "centroid"
+y2 <- sort(hclust2$height, decreasing = TRUE)[1:10]
+plot(x, y2, type = "l", col = "green", main = "Method: Centroid", xlab = "", ylab = "")
+abline(v = optimal_clusters_centroid, col = "blue", lty = 2)
+
+# elbow plot for "average"
+y3 <- sort(hclust3$height, decreasing = TRUE)[1:10]
+plot(x, y3, type = "l", col = "orange", main = "Method: Average", xlab = "", ylab = "")
+abline(v = optimal_clusters_average, col = "blue", lty = 2)
+
+#endogram 
+plot(hclust)
+plot(hclust1)
+plot(hclust2)
+plot(hclust3)
+
+```
+## Kmeans
+
+```{r}
+##final k mean selection ---
+
+
+seg_kmeans_final <- kmeans(x = data.frame(new_data$Avg_Quantity, new_data$Total_Quantity, new_data$total_value, new_data$Avg_UnitPrice, new_data$Avg_ReturnRate), centers = 6, nstart = 50)
+seg_kmeans_final$tot.withinss
+
+segment <- seg_kmeans_final$cluster
+segmentation <- cbind(new_data, segment)
+table(segmentation$segment)
+
+#visualize the segments 
+segment_counts <- table(segmentation$segment)
+segment_data <- as.data.frame(segment_counts)
+
+names(segment_data) <- c("Segment", "Count")
+
+# Create bar plot
+ggplot(segment_data, aes(x = Segment, y = Count)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_text(aes(label = Count), vjust = -0.5) + 
+  labs(title = "Customers in each segment", x = "Segment", y = "Customers") +
+  theme_minimal()
+
+```
+
+
+```{r}
+
+library(cluster)
+library(factoextra)
+
+new_data_numeric <- new_data[sapply(new_data, is.numeric)]
+
+# clusters visualization 
+fviz_cluster(seg_kmeans_final, new_data_numeric, 
+             ggtheme = theme_minimal())
+
+```
+# LDA (Linear Discriminant Analysis)
+
+```{r}
+
+##duplicate the data set to group the 
+
+library(MASS)
+
+
+segmentation$Work <- as.factor(segmentation$Work)
+segmentation$segment <- as.factor(segmentation$segment)
+
+fit <- lda(segment ~ Married + Age + Income + Edcation + Work , data = segmentation)
+plot(fit)
+
+ldapred <- predict(fit, segmentation)
+
+ld <- ldapred$x
+
+
+anova(lm(ld[,1]~segmentation$segment))
+
+anova(lm(ld[,2]~segmentation$segment))
+
+anova(lm(ld[,3]~segmentation$segment))
+
+anova(lm(ld[,4]~segmentation$segment))
+
+anova(lm(ld[,5]~segmentation$segment))
+
+
+
+pred.seg <- predict(fit)$class
+
+
+cf<- table(segmentation$segment, ldapred$class)
+cf
+
+#overal accuracy of the predicting model 
+sum(diag(cf))/nrow(segmentation)
+```
+
+# RFM analysis 
+
+```{r}
+data <- data %>%
+  mutate(revenue = Quantity * UnitPrice)
+
+rfm <- data
+
+data2 <- data %>%
+  filter(!is.na(CustomerID))
+
+rfm <- data %>%
+  group_by(CustomerID) %>%
+  summarise(
+    revenue = sum(revenue),
+    number_of_orders = n_distinct(InvoiceNo),
+    recency_days = round(as.numeric(difftime(as.POSIXct("2021-11-24 17:06:00 UTC", format = "%Y-%m-%d %H:%M:%S", tz = "UTC"), max(InvoiceDate), units = "days"))),
+    purchase = 1,
+    zip_code = get_mode(ZipCode))
+
+groups <- 5
+
+## 5.3 Run RFM Analysis with Independent Sort
+rfm$recency_score_indep <- ntile(rfm$recency_days*-1, groups)
+rfm$frequency_score_indep <- ntile(rfm$number_of_orders, groups)
+rfm$monetary_score_indep <- ntile(rfm$revenue, groups)
+rfm$rfm_score_indep <- paste(rfm$recency_score_indep*100 + rfm$frequency_score_indep * 10 + rfm$monetary_score_indep)
+rfm$recency_score_seq <- ntile(rfm$recency_days*-1, groups)
+r_groups <- NULL; rf_groups <- NULL; temp <- NULL ## Initialize empty matrices
+
+for (r in 1:groups) {
+  r_groups[[r]] <- filter(rfm, rfm$recency_score_seq == r)
+  r_groups[[r]]$frequency_score_seq <- ntile(r_groups[[r]]$number_of_orders, groups)
+  for (m in 1:groups) {
+    rf_groups[[m]] <- filter(r_groups[[r]], r_groups[[r]]$frequency_score_seq == m)
+    rf_groups[[m]]$monetary_score_seq <- ntile(rf_groups[[m]]$revenue, groups)
+    temp <- bind_rows(temp, rf_groups[[m]])
+  }
+}
+
+rfm_result <- temp[order(temp$CustomerID),]
+rfm_result$rfm_score_seq <- paste(rfm_result$recency_score_seq*100 + rfm_result$frequency_score_seq * 10 + rfm_result$monetary_score_seq)
+
+## Export RFM Results with Independent and Sequential Sort
+#write.csv(rfm_result, "Q:/Marketing Analytics/rfm_results.csv", row.names = FALSE) ## Name file rfm_result.csv
+
+
+rfm_result <- data.frame(rfm_result)
+
+
+##customer segmentation for rfm results
+rfm_result <- rfm_result %>%
+  mutate(
+    Segment2 = case_when(
+      recency_score_seq <= 2 & frequency_score_seq >= 4 & monetary_score_seq >= 4 ~ "Champions",                # Best customers
+      recency_score_seq <= 3 & frequency_score_seq >= 3 & monetary_score_seq >= 3 ~ "Loyal Customers",         # Consistently good customers
+      recency_score_seq <= 2 & frequency_score_seq <= 3 & monetary_score_seq <= 3 ~ "Potential Loyalist",      # Newer customers with potential
+      recency_score_seq >= 4 & frequency_score_seq >= 3 & monetary_score_seq >= 3 ~ "At Risk",                 # Good customers at risk of leaving
+      recency_score_seq == 1 & frequency_score_seq <= 2 & monetary_score_seq <= 2 ~ "New Customers",           # Newest customers
+      recency_score_seq <= 3 & frequency_score_seq == 2 & monetary_score_seq == 2 ~ "Promising",               # Showing potential but needs nurturing
+      recency_score_seq >= 4 & frequency_score_seq <= 2 & monetary_score_seq >= 2 ~ "Hibernating",             # Low engagement but still spending
+      frequency_score_seq >= 4 & monetary_score_seq <= 2 ~ "Price Sensitive",                                  # Frequent but low spending
+      TRUE ~ "Others"                                                                                          # Catch-all for any that don't fit above categories
+    )
+  )
+
+#join rfm table and segmentation table 
+join <- inner_join(rfm_result, segmentation, by = "CustomerID")
+
+
+segment_counts <- join %>%
+  group_by(Segment2) %>%
+  summarise(Count = n())
+
+
+print(segment_counts)
+
+
+
+library(ggplot2)
+
+
+
+#bar plot of customer segmentation with RFM 
+ggplot(segment_counts, aes(x = reorder(Segment2, -Count), y = Count, fill = Segment2)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  theme_minimal() +
+  labs(x = "Segment", y = "Customers", title = "Customer Segment Distribution") +
+  coord_flip() + 
+  scale_fill_brewer(palette = "Set2") +
+  theme(
+    axis.text.y = element_text(face = "bold")
+  )
+
+#bar plot of customer combining both types of segmentation done 
+ggplot(join, aes(x = Segment2, fill = segment)) +
+  geom_bar(show.legend = FALSE) +
+  theme_minimal() +
+  labs(x = "Segment", y = "Customer Count", title = "Customer Distribution by previous Segments") +
+  facet_wrap(~ segment, scales = "free") + 
+  theme(
+    strip.text = element_text(face = "bold"), 
+    axis.text.y = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 45, vjust = 0.5)
+  )
+```
+
+## Kmeans based on RFM results
+
+```{r}
+hclust4 <- hclust(dist(scale(cbind(rfm_result$recency_score_seq, rfm_result$frequency_score_seq, rfm_result$monetary_score_seq))), method = "complete")
+
+y <- sort(hclust$height, decreasing = TRUE)[1:10]
+plot(x,y); lines(x,y, col= "blue")
+
+kmeans_rfm <- kmeans(x = data.frame(rfm_result$recency_score_seq, rfm_result$frequency_score_seq, rfm_result$monetary_score_seq), centers = 8, nstart = 50)
+
+
+segmentrfm <- kmeans_rfm$cluster
+segmentationrfm <- cbind(rfm_result, segmentrfm)
+segment_countsrfm <- table(segmentationrfm$segmentrfm)
+
+segment_datarfm <- as.data.frame(segment_countsrfm)
+
+names(segment_datarfm) <- c("Segment", "Count")
+
+
+ggplot(segment_datarfm, aes(x = Segment, y = Count)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_text(aes(label = Count), vjust = 0) + # Añadir etiquetas de conteo encima de las barras
+  labs(title = "Customers in each segment", x = "Segment", y = "Customers") +
+  theme_minimal()
+
+
+
+
+```
+
+
+
+
+
+

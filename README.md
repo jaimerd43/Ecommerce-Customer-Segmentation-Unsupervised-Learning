@@ -9,40 +9,29 @@ Project Organization
     ├── LICENSE
     ├── README.md          <- Project information.
     ├── data
-    │   └── sales_data     <- Data of all the insurance company customers. 
+    │   └── sales_data     <- Data of all the e-commerce customers. 
     │
     ├── docs               <- A default Sphinx project.
     │
-    ├── models             
-    │   ├── LazyPredict    <- Library uses to compare initial performances of all clasiffiers. 
-    │   ├── RandomForest   <- Hyperparameter tuning and best model selection for the 1st classfier. 
-    │   ├── SVC            <- Hyperparameter tuning and best model selection for the 2st classfier. 
-    │   └── Neural Network <- Hyperparameter tuning and best model selection for the 3st classfier. 
-    ├── Notebooks
-    │   ├── 1              <- Data cleaning and analysis code. 
-    │   ├── 2              <- Machine Learning Models code. 
-    │   └── 3              <- Complete code.
+    ├── code             
+    │   ├── complete_project      <- Complete code using R. 
+    │   ├── feature engineering   <- Data preparation. 
+    │   ├── k_means               <- Hierarchical clustering and k means. 
+    │   ├── LDA                   <- Implememnt Linear Discriminant Analysis (LDA). 
+    │   └── RFM                   <- RFM to segment the customers. 
+    ├── Rmarkdown 
+    │   └── 1              <- Complete project.
+    ├── pdf 
+    │   └── 1              <- Complete project.   
     │
     ├── reports            <- Detailed report with recomendations to the company. Following CRISP-DM methodolody.
     │
-    ├── requirements.txt   <- The requirements file for reproducing the analysis environment, e.g.
-    │                         generated with `pip freeze > requirements.txt`
+    ├── dashboards             
+    │   ├── 1    <- Data Understanding. 
+    │   ├── 2    <- Segment visualization.  
+    │   └── 3    <- Base variables wise segmentation. 
     │
     ├── setup.py           <- makes project pip installable so src can be imported
-    └──  src                <- Source code for use in this project.
-        ├── __init__.py    <- Makes src a Python module.
-        │
-        ├── data           <- Download the data.
-        │   └── sales_data
-        │
-        │
-        └── models         <- Scripts to train models and then use trained models to make
-            │                 predictions 
-            ├── train_test_split.py
-            ├── lazy_predict.py.
-            ├── random_forest.py.
-            ├── SVC.py
-            └── neural_network.py
 
 
 
